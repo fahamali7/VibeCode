@@ -4,6 +4,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/theme-providere";
 import Header from "@/components/Header";
+import {ClerkProvider} from '@clerk/nextjs'
 
 const lora = Lora({
   subsets: ["latin"],
@@ -32,6 +33,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    <ClerkProvider>
     <html
       lang="en" suppressHydrationWarning>
       
@@ -43,14 +45,11 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             <Header/>
-            <main>{children} </main>
-            
+            <main>{children} </main>  
 
           </ThemeProvider>
-        
-        
-
       </body>
     </html>
+    </ClerkProvider>
   );
 }
