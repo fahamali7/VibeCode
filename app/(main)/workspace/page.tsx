@@ -19,20 +19,19 @@ const  WorkspacePage = async ({searchParams,}: WorkspacePageProps) => {
 
   const {prompt, id} = await searchParams;
 
-  // let workspace = null;
+  let workspace = null;
   // if (id) {
   //   workspace = await getWorkspaceById(id, user.id);
   // }
 
   return (
-    <WorkspaceClient/>
-    // <WorkspaceClient
-    //   initialPrompt={prompt ?? null}
-    //   workspace={workspace}
-    //   userCredits={user.credits}
-    //   userId={user.id}
-    //   userPlan={user.plan}
-    // />
+    <WorkspaceClient
+      initialPrompt={prompt ?? null}
+      workspace={workspace}
+      userCredits={10}
+      userId={userId}
+      userPlan="free"
+    />
   );
 }
 
