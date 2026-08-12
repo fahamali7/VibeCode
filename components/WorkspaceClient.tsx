@@ -6,6 +6,7 @@ import { FileData, Message, StatusStep, WorkspaceData } from "@/types/workspace"
 import ChatPanel from "./ChatPanel";
 import { MIN_CREDITS_TO_GENERATE } from "@/lib/constants";
 import { toast } from "sonner";
+import { error } from "console";
 
 interface WorkspaceClientProps {
   initialPrompt: string | null;
@@ -74,6 +75,8 @@ export function WorkspaceClient({
       fileDataRef.current = fileData;
     }, [fileData]);
 
+    const generateAbortRef = useRef<AbortController | null>(null);
+    const improveAbortRef = useRef<AbortController | null>(null);
 
     const pushStep = (label: string) => {
       setStatusLog((prev) => [
@@ -110,6 +113,9 @@ export function WorkspaceClient({
       setMessages((prev) => [...prev, userMessage]);
       setIsGenerating(true);
       setStatusLog([{ label: "Thinking…", status: "running" }]);
+
+      const abortController = new AbortController();
+      generateAbortRef.current = abortController;
       
       try{
 
@@ -118,6 +124,7 @@ export function WorkspaceClient({
         const res = await fetch("/api/gen-ai", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: abortController.signal,
           
           body: JSON.stringify({
             workspaceId: currentWorkspaceId,
@@ -184,9 +191,9 @@ export function WorkspaceClient({
         }
             catch(err){
             if (err instanceof Error && err.name === "AbortError") {
-          setMessages((prev) => prev.slice(0, -1));
-          return;
-        }
+              setMessages((prev) => prev.slice(0, -1));
+              return;
+            }
         console.error(err);
         toast.error(
           err instanceof Error ? err.message: "Something went wrong"
@@ -194,12 +201,17 @@ export function WorkspaceClient({
         setMessages((prev) => prev.slice(0, -1));
             }
             finally{
+              generateAbortRef.current = null;
               setIsGenerating(false);
               setStatusLog([]);
             }      
 
   }, [credits, isGenerating, userId]);
 
+  const handleStop = useCallback(()=>{
+    generateAbortRef.current?.abort();
+    improveAbortRef.current?.abort();
+  }, [])
 
 
     return (
@@ -216,6 +228,7 @@ export function WorkspaceClient({
           userId={userId}
           workspaceId={workspaceId}
           appTitle={"Test Title"}
+          onStop={handleStop}
         />
 
             {/* code panel - right */}
@@ -224,6 +237,9 @@ export function WorkspaceClient({
             isGenerating={isGenerating}
             statusLog={statusLog}
             onFilePatch={handleFilePatch}
+            onFixError={(error) => handleGenerate(
+              `There is an error in the preview:\n\n\`\`\`\n${error}\n\`\`\`\n\nPlease fix it.`
+            )}
             />
         </div>
     );

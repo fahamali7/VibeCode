@@ -5,6 +5,7 @@ import { db } from "@/lib/prisma";
 import { CREDIT_COST_PER_GENERATION } from "@/lib/constants";
 import type { Message, FileData } from "@/types/workspace";
 import { request } from "https";
+import { aj } from "@/lib/arcjet";
 // import { aj } from "@/lib/arcjet";
 
 
@@ -125,6 +126,29 @@ export async function POST(request: NextRequest){
         return Response.json({message: "No messages provided"}, {status: 400})
     }
       
+    // arcjet implementation
+     
+    const arcjetReq = new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: JSON.stringify(body),
+    });
+        
+    const lastUserMessage = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+
+    const decision = await aj.protect(arcjetReq, {
+        requested: 1,
+        userId: clerkId,
+        detectPromptInjectionMessage: lastUserMessage,
+    });
+
+    if (decision.isDenied()) {
+        return Response.json(
+        { message: decision.reason?.type ?? "Request blocked" },
+        { status: 429 }
+        );
+    } 
+
 
     const user = await db.user.findUnique({
         where: {clerkId},
@@ -236,33 +260,46 @@ export async function POST(request: NextRequest){
             { role: "assistant", content: assistantMessage },
             ];
 
-            const [workspace] = await db.$transaction([
-                workspaceId ? db.workspace.update({
-                    where: { id: workspaceId },
-                    data:{
-                        messages: updatedMessages as never,
-                        fileData: newFileData as never,
-                    },
-                })
-                : db.workspace.create({
-                    data: {
-                        userId: user.id,
-                        title: aiTitle ?? lastUserMessage.content.slice(0, 80),
-                        messages: updatedMessages as never,
-                        fileData: newFileData as never,
+            const workspace = await db.$transaction(async (tx) => {
+                const workspace = workspaceId
+                    ? await tx.workspace.update({
+                        where: { id: workspaceId },
+                        data:{
+                            messages: updatedMessages as never,
+                            fileData: newFileData as never,
                         },
-                    }),
-                db.user.update({
+                    })
+                    : await tx.workspace.create({
+                        data: {
+                            userId: user.id,
+                            title: aiTitle ?? lastUserMessage.content.slice(0, 80),
+                            messages: updatedMessages as never,
+                            fileData: newFileData as never,
+                        },
+                    });
+
+                await tx.user.update({
                     where: { id: user.id },
                     data: { credits: { decrement: CREDIT_COST_PER_GENERATION } },
-                }),
-            ]);
+                });
+
+                return workspace;
+            }, {timeout: 200000});
 
             const updatedUser = await db.user.findUnique({
             where: { id: user.id },
             select: { credits: true },
             });
 
+            enqueue(
+                sseEvent("done", {
+                    assistantMessage,
+                    workspaceId: workspace.id,
+                    fileData: newFileData,
+                    creditsRemaining:
+                        updatedUser?.credits ?? user.credits - CREDIT_COST_PER_GENERATION,
+                })
+            );
 
             }
             catch (error){
