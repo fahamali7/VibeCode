@@ -12,9 +12,11 @@ import {
 } from "@codesandbox/sandpack-react";
 import { dracula } from "@codesandbox/sandpack-themes";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { AlertTriangle, Code, Eye, Wand2 } from "lucide-react";
+import { AlertTriangle, ArrowUp, Code, Download, Eye, Loader2, Wand2 } from "lucide-react";
 import {RingLoader} from "react-spinners"
 import { Button } from "@/components/ui/button";
+import PricingModal from "./PricingModal";
+import JSZip from "jszip";
 
 const PLACEHOLDER_FILES = {
   "/App.js": {
@@ -68,6 +70,9 @@ interface CodePanelProps {
     statusLog: StatusStep[];
     onFilePatch: (patches: FileData) => void;
     onFixError: (error: string) => Promise<void>;
+    isProUser: boolean;
+    appTitle: string | null;
+    onImprove: (userRequest: string) => Promise<void>;
     
 }
 function SandPackInner({
@@ -75,23 +80,23 @@ function SandPackInner({
   statusLog,
   activeTab,
   setActiveTab,
-  // onImprove,
+  onImprove,
   onFixError,
   fileData,
-  // appTitle,
+  appTitle,
   isImproving,
-  // isProUser,
+  isProUser,
 }: {
   isGenerating: boolean;
   statusLog: StatusStep[];
   activeTab: ActiveTab;
   setActiveTab: (t: ActiveTab) => void;
-  // onImprove: (userRequest: string) => Promise<void>;
+  onImprove: (userRequest: string) => Promise<void>;
   onFixError: (error: string) => Promise<void>;
   fileData: FileData | null;
-  // appTitle: string | null;
+  appTitle: string | null;
   isImproving: boolean;
-  // isProUser: boolean;
+  isProUser: boolean;
 }) {
     const {sandpack, listen} = useSandpack();
     //listen - for error listening
@@ -104,6 +109,113 @@ function SandPackInner({
 
     const [previewError, setPreviewError] = useState<string | null >("Error in the app");
     const unsubscribedRef = useRef<(() => void) | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+    const [improveInput, setImproveInput] = useState("");
+    const [showImproveInput, setShowImproveInput] = useState(false);
+
+    const handleExportZip = async () => {
+      if(isExporting) return;
+      setIsExporting(true);
+
+      try {
+        const filesToZip =
+        Object.keys(sandpack.files).length > 0
+          ? sandpack.files
+          : fileData?.files ?? {};
+
+      const dependencies = {
+        ...BASE_DEPENDENCIES,
+        ...(fileData?.dependencies ?? {}),
+      };
+
+      const zip = new JSZip();
+      const packageJson = {
+        name: appTitle ?? "vibecode-app",
+        version: "1.0.0",
+        private: true,
+        dependencies: {
+          react: "^18.2.0",
+          "react-dom": "^18.2.0",
+          "react-scripts": "5.0.1",
+          ...dependencies,
+        },
+        scripts: {
+          start: "react-scripts start",
+          build: "react-scripts build",
+        },
+        browserslist: {
+          production: [">0.2%", "not dead", "not op_mini all"],
+          development: ["last 1 chrome version"],
+        },
+      };
+
+      zip.file("package.json", JSON.stringify(packageJson, null, 2));
+
+      zip.file(
+        "public/index.html",
+        `<!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Forge App</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+          </head>
+          <body>
+            <div id="root"></div>
+          </body>
+        </html>`
+      );
+
+      for (const [filePath, fileObj] of Object.entries(filesToZip)) {
+        const code =
+          typeof fileObj === "object" && fileObj !== null && "code" in fileObj
+            ? (fileObj as { code: string }).code
+            : "";
+        const zipPath = filePath.startsWith("/")
+          ? `src${filePath}`
+          : `src/${filePath}`;
+        zip.file(zipPath, code);
+      }
+
+      zip.file(
+        "src/index.js",
+        `import React from 'react';
+        import ReactDOM from 'react-dom/client';
+        import App from './App';
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<React.StrictMode><App /></React.StrictMode>);`
+      );
+
+      const blob = await zip.generateAsync({type: "blob"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const zipName = appTitle
+        ? `${appTitle
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "")}.zip`
+        : "vibecode-app.zip";
+      a.download = zipName;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      } catch (error) {
+        console.error("Export Failed", error);
+      } finally {
+        setIsExporting(false);
+      }
+    };
+
+    const handleImproveSubmit = async () => {
+      const trimmed = improveInput.trim();
+      if (!trimmed || isImproving) return;
+      setImproveInput("");
+      setShowImproveInput(false);
+      await onImprove(trimmed);
+    };
 
     useEffect(()=> {
       if(isGenerating) setPreviewError(null);
@@ -171,6 +283,69 @@ function SandPackInner({
             Preview
             </TabsTrigger>
         </TabsList>
+
+        {isProUser ? ( showImproveInput ? (
+          <div className="flex items-center gap-1.5"> 
+            <input
+              autoFocus
+              value={improveInput}
+              onChange={(e) => setImproveInput(e.target.value)}
+              onKeyDown={(e) => {
+              if (e.key === "Enter") handleImproveSubmit();
+              if (e.key === "Escape") setShowImproveInput(false);
+              }}
+              placeholder="What should I improve?"
+              className="h-7 w-56 rounded-md border border-violet-500/30 bg-linear-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 pl-8 pr-3 text-xs text-white/80 placeholder:text-white/30 focus:border-violet-400/50 focus:outline-none focus:shadow-[0_0_10px_rgba(139,92,246,0.2)]"
+            />
+            <Button
+              onClick={handleImproveSubmit}
+              disabled={!improveInput.trim() || isImproving}
+              className="h-7 w-7 rounded-lg bg-white text-black hover:bg-white/90"
+              >
+                {isImproving ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <ArrowUp className="h-3 w-3" />
+                  )}
+            </Button>
+          </div>
+          ) : ( 
+          <Button
+          variant={"ghost"}
+          size={"sm"}
+          onClick={() => setShowImproveInput(true)}
+          disabled={isImproving || !fileData}
+          className="h-7 gap-1.5 text-xs text-white/40 hover:text-white/70"
+          >
+          <Wand2 className="h-3.5 w-3.5"/>
+          {isImproving ? "Improving..." : "Improve with Agent"}
+          </Button>
+          )
+          ) : (
+            <PricingModal reason="upgrade">
+              <span className="flex h-7 cursor-pointer gap-1.5 rounded-md px-2 text-xs text-white/40 hover:text-white/70">
+                <Wand2 className="h-3.5 w-3.5"/>
+                Improve with Agent
+              </span>
+            </PricingModal>
+          )}
+
+           {/* export to zip functionality */}
+           <Button
+            variant="ghost"
+            onClick={handleExportZip}
+            disabled={isExporting || !fileData}
+            size={"sm"}
+            className={"h-7 gap-1.5 text-xs text-white/40 hover:text-white/70"}
+          >
+            {isExporting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            Download
+          </Button>
+
         </div>
 
           <div className="relative flex-1 overflow-hidden">
@@ -267,12 +442,12 @@ export function CodePanel({
   fileData,
   isGenerating,
   statusLog,
-//   onImprove,
+  isImproving,
+  onImprove,
   onFixError,
   onFilePatch: _onFilePatch,
-//   appTitle,
-  isImproving,
-//   isProUser,
+  appTitle,
+  isProUser,
 
 }: CodePanelProps){
     const [activeTab, setActiveTab] = useState<ActiveTab>("preview");
@@ -307,6 +482,9 @@ export function CodePanel({
             statusLog = {statusLog}
             isImproving={isImproving}
             onFixError={onFixError}
+            isProUser={isProUser}
+            appTitle={appTitle}
+            onImprove={onImprove}
            />   
                 
             </SandpackProvider>

@@ -1,15 +1,16 @@
+"use client";
+
 import { Message, StatusStep } from '@/types/workspace'
-import React, { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import PricingModal from './PricingModal';
 import { cn } from '@/lib/utils';
 import { BlueTitle } from './reusables';
-import { ArrowUp, Loader, Loader2, Paperclip, Sparkles, Square, X } from 'lucide-react';
+import { ArrowUp, Loader, Loader2, Paperclip, Sparkles, Square, Wand2, X } from 'lucide-react';
 import { Button } from './ui/button';
 import Image from 'next/image';
 import { useUser } from '@clerk/nextjs';
 import ReactMarkdown from 'react-markdown';
 import {createClient} from "@supabase/supabase-js";
-import { native } from 'pg';
 import { toast } from 'sonner';
 
 const supabase = createClient(
@@ -77,7 +78,6 @@ const ChatPanel = ({
       return;
     hasAutoSubmittedRef.current = true;
     onGenerate(initialPrompt);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const {user} = useUser();
@@ -128,7 +128,8 @@ const ChatPanel = ({
         
     };
 
-
+    const lastMsg = messages[messages.length - 1];
+    const isStreamingAssistant = isImproving && lastMsg?.role === "assistant";
 
 
   return (
@@ -165,15 +166,22 @@ const ChatPanel = ({
             </div>
          )}  
          <div className='space-y-4'>
-            {messages.map((msg, i) =>(
+            {messages.map((msg, i) =>{
+              const isLast = i === messages.length - 1;
+              const isLiveStream = isLast && isStreamingAssistant;
+
+              return(
 
                    <div key={i}>
-                    {msg.role == "user" ? (
+                    {msg.role === "user" ? (
                         <div className='flex items-start justify-end gap-2'>
                             <div className='max-w-[85%] space-y-1.5'>
 
                                 {msg.imageUrl && (
-                                    <img src={msg.imageUrl} alt="uploaded" className='max-h-40 w-full rounded-lg object-cover' />
+                                    <img 
+                                    src={msg.imageUrl} alt="uploaded"
+                                    className='max-h-40 w-full rounded-lg object-cover'
+                                    />
                                 )}
                                  
 
@@ -186,12 +194,12 @@ const ChatPanel = ({
                                     <img
                                     src={user.imageUrl}
                                     alt={user.fullName ?? "You"}
-                                    className="max-h-40 w-full rounded-lg object-cover"
+                                    className="mt-0.5 h-6 w-6 shrink-0 rounded-full"
                                     />
                                 ) : (
                                     <div className='mt-0.5 flex h-6 w-6 shrink-0 items-center
                                     justify-center rounded-full bg-white/10 text-[10px] text-white/50'>
-                                        {user?.firstName?.[0] ?? " U"}
+                                        {user?.firstName?.[0] ?? "U"}
                                     </div> 
                                 )}
                         </div>
@@ -204,17 +212,39 @@ const ChatPanel = ({
                             height = {24}
                             className = "mt-0.5 h-6 w-6 shrink-0 rounded-md"
                             />
-                            <div className='prose prose-sm prose-invert max-w-none text-[13px] leading-relaxed text-white/70 wrap-break-word
-                            [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-blue-300/80 [&_code]:text-xs 
-                            [&_code]:break-all [&_li]:my-0.5 [&_p]:my-1 [&_pre]:overflow-x-auto! [&_pre]:whitespace-pre-wrap! [&_ul]:my-1'>
-                               <ReactMarkdown>{msg.content}</ReactMarkdown> 
-                            </div>
-                        </div>
+                            <div className="min-w-0 rounded-2xl rounded-tl-sm bg-white/5 px-3.5 py-2.5">
+                            {isLiveStream && !msg.content ? (
+                              // empty placeholder
+                              <div className='flex items-center gap-2'>
+                                  <Wand2 className='h-3 w-3 shrink-0 text-blue-400/60'/>
+                                  <span className="text-[10px] font-medium uppercase tracking-wider text-blue-400/50">
+                                    Cline is thinking
+                                  </span>
+                                </div>
+                            ) : isLiveStream && msg.content ? (
+                                <div>
+                                  <div className='mb-1.5 flex items-center gap-1.5'>
+                                    <Wand2 className='h-3 w-3 shrink-0 text-blue-400/60'/>
+                                    <span className='text-[10px] font-medium uppercase tracking-wider text-blue-400/50'>Agent Reasoning</span>
+                                  </div>
+                                  <p className='text-[12px] leading-relaxed text-white/35 wrap-break-word'>
+                                    {msg.content}
+                                    <span className="ml-0.5 inline-block h-3 w-0.5 animate-[blink_is_ease-in-out_infinite] bg-blue-400/60 align-middle"/>
+                                  </p>
+                                </div>
+                              ) : (
+                                   <div className='prose prose-sm prose-invert max-w-none text-[13px] leading-relaxed text-white/70 wrap-break-word [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-blue-300/80 [&_code]:text-xs  [&_code]:break-all [&_li]:my-0.5 [&_p]:my-1 [&_pre]:overflow-x-auto! [&_pre]:whitespace-pre-wrap! [&_ul]:my-1'>
+                                      <ReactMarkdown>{msg.content}</ReactMarkdown> 
+                                  </div>
+                      
+                            )}
 
+                       </div>
+                      </div>    
                     )}
                    </div> 
-            ))}
-        </div> 
+                  );
+            })} 
         {/* Status Steps */}
         {isGenerating && 
             <div className=' flex items-start gap-2'>
@@ -228,9 +258,9 @@ const ChatPanel = ({
                 <div className='rounded-2xl rounded-tl-sm bg-white/5 px-3.5 py-3'>
                     <div className='space-y-2'>
                         {statusLog.map((step, i)=>(
-                            <div key={i} className='flex items-center gap-2.5'>
-                                                    <div className="flex h-4 w-4 shrink-0 items-center justify-center">
-                        {step.status === "running" ? (
+                        <div key={i} className='flex items-center gap-2.5'>
+                          <div className="flex h-4 w-4 shrink-0 items-center justify-center">
+                          {step.status === "running" ? (
                           <Loader2 className="h-3 w-3 animate-spin text-blue-400/80" />
                         ) : (
                           <svg
@@ -263,10 +293,10 @@ const ChatPanel = ({
                         ))}
                     </div>
                 </div>
-            </div>}
-
+            </div>
+            }
         </div>
-        
+      </div>  
         {noCredits && (
         <div className="mx-3 mb-2 rounded-xl border border-red-500/15 bg-red-950/40 px-4 py-3">
           <p className="mb-2 text-[12px] font-medium text-red-400/80">
@@ -338,7 +368,7 @@ const ChatPanel = ({
                     {isUploading ? (
                         <Loader className='h-3.5 w-3.5 animate-spin'/>
                         ) : (
-                            <Paperclip className="h-3.5 w-3.5" />
+                          <Paperclip className="h-3.5 w-3.5" />
                     )}
                         
                     {/* ) : (  */}

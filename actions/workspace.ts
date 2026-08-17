@@ -1,3 +1,5 @@
+"use server";
+
 import { db } from "@/lib/prisma";
 import { WorkspaceData, WorkspaceUser } from "@/types/workspace";
 import { auth } from "@clerk/nextjs/server";
